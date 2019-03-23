@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 
 import requests
+from requests.exceptions import ConnectTimeout, ProxyError
 from lxml import etree
 import time
-from NeteaseMusic.getproxy import get_proxy
+from getproxy import get_proxy
 from Crypto.Cipher import AES
 import base64
 import json
@@ -22,18 +23,48 @@ params = {
     'limit': '35',
     'offset': '35'
 }
-proxies = {'https': ''}
+proxies = {'https': 'https://171.41.80.191:9998'}
 
 
 def init_db():
     client = pymongo.MongoClient(host='localhost', port=27017)
     db = client['netease']
-    return db['songs_info']
+    return db['songs_info1']
 
 
 def update_proxy(proxies):
-    #proxies['https'] = get_proxy()
-    proxies = None
+    proxies['https'] = get_proxy()
+
+
+def my_get_request(url, params=None, **kwargs):
+    retry_cnt = 0
+    while retry_cnt < 5:
+        try:
+            #print proxies
+            response = requests.get(url, params, **kwargs)
+            return response
+        except ConnectTimeout:
+            update_proxy(proxies)
+        except ProxyError:
+            #print 'update proxy and request again..'
+            update_proxy(proxies)
+        finally:
+            retry_cnt += 1
+
+
+def my_post_request(url, data=None, json=None, **kwargs):
+    retry_cnt = 0
+    while retry_cnt < 5:
+        try:
+            response = requests.post(url, data, json, **kwargs)
+            return response
+        except ConnectTimeout:
+            update_proxy(proxies)
+        except ProxyError:
+            #print 'update proxy and request again..'
+            update_proxy(proxies)
+        finally:
+            retry_cnt += 1
 
 
 def AES_encrypt(key, text):
@@ -68,7 +99,7 @@ def get_encseckey():
 def get_number_of_song_comments(id_str):
     url = "http://music.163.com/weapi/v1/resource/comments/R_SO_4_" + str(id_str) + "?csrf_token="
     data = {'params': get_params(1, 1), 'encSecKey': get_encseckey()}
-    response = requests.post(url, headers=headers, data=data, proxies=proxies, timeout=2)
+    response = my_post_request(url, headers=headers, data=data, proxies=proxies, timeout=2)
     comments_json = json.loads(response.content)
     if 'total' in comments_json:
         return int(comments_json['total'])
@@ -77,7 +108,7 @@ def get_number_of_song_comments(id_str):
 
 
 def get_song_hrefs(url):
-    response = requests.get(url, headers=headers, proxies=proxies, timeout=2)
+    response = my_get_request(url, headers=headers, proxies=proxies, timeout=2)
     #print response.text
     html = etree.HTML(response.content)
     song_href_list = html.xpath('//*[@id="song-list-pre-cache"]/ul//li/a/@href')
@@ -89,8 +120,8 @@ def get_song_hrefs(url):
 
 def get_song_folder_hrefs(url, page):
     params['offset'] = str(page*35)
-    response = requests.get(url, params=params, headers=headers, proxies=proxies, timeout=2)
-    print response.status_code
+    response = my_get_request(url, params=params, headers=headers, proxies=proxies, timeout=2)
+    #print response.status_code
     html = etree.HTML(response.content)
     song_folder_href_list = html.xpath('//*[@id="m-pl-container"]//li/p[1]/a/@href')
     play_cnt_list = html.xpath('//*[@id="m-pl-container"]//li/div/div/span[2]/text()')
@@ -107,13 +138,13 @@ def get_song_folder_hrefs(url, page):
 
 def find_target_song(url):
     collection = init_db()
-    for page in range(0, 38):
-        update_proxy(proxies)   #代理时效很短
+    #for page in range(0, 38):
+    for page in range(4, 38):
         print "获取第%d页所有播放量大于500万歌单中..." % (page+1)
         for folder_url in get_song_folder_hrefs(url, page):
             print folder_url
             for song_url in get_song_hrefs(folder_url):
-                time.sleep(0.5)
+                #time.sleep(0.5)
                 if 100000 < get_number_of_song_comments(song_url.split('=')[1]):
                     print "发现一首评论数大于10万的歌：" + song_url
                     collection.insert_one({'url': song_url})
