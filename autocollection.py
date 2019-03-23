@@ -11,7 +11,7 @@ import random
 def init_db():
     client = pymongo.MongoClient(host='localhost', port=27017)
     db = client['netease']
-    return db['songs_info']
+    return db['songs_info1']
 
 
 def find_song_from_db(collection):
@@ -53,7 +53,9 @@ def collect_songs():
     browser = webdriver.Chrome(chrome_options=options)
 
     url_list = find_song_from_db(init_db())
-    for song_url in url_list:
+    url_set = set(url_list)
+    print u'开始收藏歌曲，共' + str(len(url_set)) + u'首'
+    for song_url in url_set:
         if collect_one_song_by_url(browser, song_url):
             print song_url + u'，已收集'
         else:
