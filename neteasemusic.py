@@ -9,7 +9,7 @@ from Crypto.Cipher import AES
 import base64
 import json
 import pymongo
-import urllib
+from multiprocessing import Process
 
 target_url = 'https://music.163.com/discover/playlist/'
 headers = {
@@ -17,19 +17,19 @@ headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) \
     Chrome/73.0.3683.75 Safari/537.36'
 }
-params = {
-    'order': 'hot',
-    'cat': '全部',
-    'limit': '35',
-    'offset': '35'
-}
+param_list = [{'order': 'hot', 'cat': '华语', 'limit': '35', 'offset': ''},
+              {'order': 'hot', 'cat': '流行', 'limit': '35', 'offset': ''},
+              {'order': 'hot', 'cat': '民谣', 'limit': '35', 'offset': ''},
+              {'order': 'hot', 'cat': '榜单', 'limit': '35', 'offset': ''}]
+
+collections = ['songs_info1', 'songs_info2', 'songs_info3', 'songs_info4']
 proxies = {'https': 'https://171.41.80.191:9998'}
 
 
-def init_db():
+def init_db(col_name):
     client = pymongo.MongoClient(host='localhost', port=27017)
     db = client['netease']
-    return db['songs_info1']
+    return db[col_name]
 
 
 def update_proxy(proxies):
@@ -118,8 +118,7 @@ def get_song_hrefs(url):
         yield 'https://music.163.com' + href
 
 
-def get_song_folder_hrefs(url, page):
-    params['offset'] = str(page*35)
+def get_song_folder_hrefs(url, params):
     response = my_get_request(url, params=params, headers=headers, proxies=proxies, timeout=2)
     #print response.status_code
     html = etree.HTML(response.content)
@@ -136,12 +135,12 @@ def get_song_folder_hrefs(url, page):
             yield 'https://music.163.com' + href
 
 
-def find_target_song(url):
-    collection = init_db()
-    #for page in range(0, 38):
-    for page in range(4, 38):
-        print "获取第%d页所有播放量大于500万歌单中..." % (page+1)
-        for folder_url in get_song_folder_hrefs(url, page):
+def find_target_song(url, params, col_name):
+    collection = init_db(col_name)
+    for page in range(0, 38):
+        print "[%s]获取第%d页所有播放量大于500万歌单中..." % (params['cat'], page+1)
+        params['offset'] = str(page * 35)
+        for folder_url in get_song_folder_hrefs(url, params):
             print folder_url
             for song_url in get_song_hrefs(folder_url):
                 #time.sleep(0.5)
@@ -151,6 +150,8 @@ def find_target_song(url):
 
 
 if __name__ == '__main__':
-    find_target_song(target_url)
+    for index in range(0, 4):
+        process = Process(target=find_target_song, args=(target_url, param_list[index], collections[index]))
+        process.start()
 
 
